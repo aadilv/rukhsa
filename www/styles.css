@@ -1,0 +1,21 @@
+/* layout */
+.question-card,
+.answer-card {
+  max-width: 680px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* vertical spacing */
+.question-card { margin-top: 60px; }
+.answer-card   { margin-top: 24px; }
+
+/* suggestion chip colors */
+.chip-btn {
+  background: #D1FAE5;
+  border: 1px solid #6EE7B7;
+  color: #064E3B;
+  transition: background 0.15s ease;
+}
+
+.chip-btn:hover { background: #A7F3D0; }
