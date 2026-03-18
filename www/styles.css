@@ -19,3 +19,22 @@
 }
 
 .chip-btn:hover { background: #A7F3D0; }
+
+/* md rendered ruling content */
+.ruling-body ol,
+.ruling-body ul {
+  padding-left: 1.25rem;
+  margin-bottom: 0.75rem;
+}
+
+.ruling-body li {
+  margin-bottom: 0.35rem;
+}
+
+.ruling-body p {
+  margin-bottom: 0.6rem;
+}
+
+.ruling-body strong {
+  color: #064E3B;
+}
