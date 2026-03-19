@@ -1,4 +1,4 @@
-/* layout */
+/* center and constrain main content width */
 .question-card,
 .answer-card {
   max-width: 680px;
@@ -10,7 +10,7 @@
 .question-card { margin-top: 60px; }
 .answer-card   { margin-top: 24px; }
 
-/* suggestion chip colors */
+/* suggestion chip colors - shape handled by Bootstrap rounded-pill */
 .chip-btn {
   background: #D1FAE5;
   border: 1px solid #6EE7B7;
@@ -20,21 +20,37 @@
 
 .chip-btn:hover { background: #A7F3D0; }
 
-/* md rendered ruling content */
+/* markdown rendered ruling content */
 .ruling-body ol,
 .ruling-body ul {
   padding-left: 1.25rem;
   margin-bottom: 0.75rem;
 }
 
-.ruling-body li {
-  margin-bottom: 0.35rem;
+.ruling-body li { margin-bottom: 0.35rem; }
+
+.ruling-body p  { margin-bottom: 0.6rem; }
+
+.ruling-body strong { color: #064E3B; }
+
+/* hadith quote block inside sources */
+.hadith-quote {
+  border-left: 3px solid #6EE7B7;
+  padding: 8px 12px;
+  background: #F0FDF4;
+  font-size: 0.875rem;
+  font-style: italic;
+  color: #374151;
+  margin-top: 6px;
 }
 
-.ruling-body p {
-  margin-bottom: 0.6rem;
+.hadith-quote .blockquote-footer {
+  font-size: 0.75rem;
+  color: #6B7280;
 }
 
-.ruling-body strong {
-  color: #064E3B;
+/* mobile: remove top margin on small screens */
+@media (max-width: 576px) {
+  .question-card { margin-top: 24px; }
+  .answer-card   { margin-top: 16px; }
 }
