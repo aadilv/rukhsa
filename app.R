@@ -10,6 +10,7 @@ library(markdown)
 source("R/data_utils.R")
 source("R/groq.R")
 source("R/hadith.R")
+source("R/comparison.R")
 
 db      <- load_fiqh_data()
 MADHABS <- unique(db$madhab)
@@ -21,8 +22,6 @@ SUGGESTIONS <- c(
   "How do I do tayammum in hospital?"
 )
 
-# keywords that indicate an in-scope question
-# if NONE of these appear in the query we skip the Groq call entirely
 SCOPE_TERMS <- c(
   "wudu", "prayer", "salah", "tayammum", "madhab", "fiqh",
   "hospital", "sick", "illness", "catheter", "colostomy", "bandage",
@@ -47,11 +46,11 @@ ui <- page_fluid(
   theme = my_theme,
 
   tags$head(
-    tags$meta(name = "viewport",
-              content = "width=device-width, initial-scale=1, shrink-to-fit=no"),
-    tags$link(rel = "stylesheet", href = "styles.css")
+  tags$meta(name = "viewport",
+            content = "width=device-width, initial-scale=1, shrink-to-fit=no"),
+  tags$link(rel = "stylesheet", href = "styles.css"),
+  tags$script(src = "script.js")
   ),
-  tags$script(src = "scripts.js"),
   useShinyjs(),
 
   div(class = "question-card",
@@ -65,24 +64,43 @@ ui <- page_fluid(
       selectInput("madhab", NULL, choices = MADHABS, selected = MADHABS[1], width = "100%")
     ),
 
+    # cross-madhab comparison checkbox
+    div(class = "mb-3",
+      tags$div(class = "form-check",
+        tags$input(
+          type  = "checkbox",
+          id    = "show_comparison",
+          class = "form-check-input"
+        ),
+        tags$label(
+          `for` = "show_comparison",
+          class = "form-check-label text-muted",
+          style = "font-size:0.875rem;",
+          "Also show how other madhabs rule on this"
+        )
+      )
+    ),
+
     div(class = "mb-2",
       tags$label("Describe your situation or ask a question",
                  class = "form-label fw-semibold"),
-
       div(class = "d-flex gap-2 align-items-start",
-        tags$textarea(
-          id          = "question",
-          class       = "form-control",
-          rows        = "3",
-          placeholder = "e.g. I have a urinary catheter. How do I perform wudu and pray?",
-          style       = "resize: vertical;"
+        div(class = "flex-grow-1",
+          textAreaInput(
+            inputId     = "question",
+            label       = NULL,
+            value       = "",
+            rows        = 3,
+            placeholder = "e.g. I have a urinary catheter. How do I perform wudu and pray?",
+            width       = "100%"
+          )
         ),
         tags$button(
           id      = "mic_btn",
-          class   = "mic-btn flex-shrink-0",
+          class   = "mic-btn flex-shrink-0 mt-1",
           title   = "Click to speak your question",
           onclick = "startSpeechInput()",
-          HTML("&#127908;")   
+          HTML("&#127908;")
         )
       )
     ),
@@ -115,7 +133,16 @@ ui <- page_fluid(
     )
   ),
 
-  uiOutput("answer_area")
+  uiOutput("answer_area"),
+
+  tags$footer(
+    class = "text-center text-muted mt-5 mb-4",
+    style = "font-size:0.78rem; max-width:680px; margin-left:auto; margin-right:auto;",
+    tags$hr(),
+    p("Rukhsa provides information based on classical Islamic scholarship. ",
+      "For personal religious matters, consult a qualified Islamic scholar. ",
+      "Rulings are documented from primary sources but are not a substitute for scholarly guidance.")
+  )
 )
 
 server <- function(input, output, session) {
@@ -154,29 +181,40 @@ server <- function(input, output, session) {
 
     pattern <- paste(keywords, collapse = "|")
 
-    madhab_df |>
+    scored <- madhab_df |>
       mutate(
         score =
-          (str_detect(tolower(condition_topic), pattern) * 2) +
-          (str_detect(tolower(app_display_tag), pattern) * 2) +
+          (str_detect(tolower(condition_topic), pattern) * 3) +
+          (str_detect(tolower(app_display_tag), pattern) * 3) +
           (str_detect(tolower(sub_category),    pattern) * 2) +
           (str_detect(tolower(ruling_summary),  pattern) * 1) +
           (str_detect(tolower(ruling_detail),   pattern) * 1)
       ) |>
-      filter(score > 0) |>
-      arrange(desc(score)) |>
-      head(3) |>
-      select(-score)
+      filter(score >= 2) |>
+      arrange(desc(score))
+
+    if (nrow(scored) == 0) return(madhab_df[0, ])
+
+    top    <- scored |> head(1)
+    second <- scored |> slice(2)
+
+    if (nrow(second) > 0 && second$score[1] >= (top$score[1] / 2)) {
+      result <- bind_rows(top, second)
+    } else {
+      result <- top
+    }
+
+    result |> select(-score)
   }
 
-  # lightweight scope check
   is_in_scope <- function(question) {
     q <- tolower(question)
     any(str_detect(q, SCOPE_TERMS))
   }
 
-  groq_response <- reactiveVal(NULL)
-  matched_rows  <- reactiveVal(NULL)
+  groq_response  <- reactiveVal(NULL)
+  matched_rows   <- reactiveVal(NULL)
+  comparison_tbl <- reactiveVal(NULL)
 
   observeEvent(input$submit, {
     req(input$question)
@@ -185,6 +223,7 @@ server <- function(input, output, session) {
 
     groq_response(NULL)
     matched_rows(NULL)
+    comparison_tbl(NULL)
 
     if (!is_in_scope(q)) {
       groq_response("I can only help with Islamic rulings on prayer and purification for people with medical conditions. Please ask a related question.")
@@ -194,16 +233,22 @@ server <- function(input, output, session) {
 
     show("loading")
 
-    rows   <- retrieve_rows(q, madhab_data())
+    rows <- retrieve_rows(q, madhab_data())
     matched_rows(rows)
 
     answer <- call_groq(q, input$madhab, rows)
 
-    if (str_detect(answer, "429|rate limit|too many", negate = FALSE)) {
+    if (str_detect(tolower(answer), "429|rate limit|too many")) {
       answer <- "The service is temporarily busy. Please wait a moment and try again."
     }
 
     groq_response(answer)
+
+    if (isTRUE(input$show_comparison)) {
+      comp <- build_comparison(db, q)
+      comparison_tbl(comp)
+    }
+
     hide("loading")
   })
 
@@ -212,6 +257,7 @@ server <- function(input, output, session) {
 
     answer <- groq_response()
     rows   <- matched_rows()
+    comp   <- comparison_tbl()
 
     answer_html <- markdownToHTML(
       text          = answer,
@@ -231,8 +277,28 @@ server <- function(input, output, session) {
       )
     )
 
-    sources_section <- if (!is.null(rows) && nrow(rows) > 0) {
+    comparison_card <- if (!is.null(comp) && nrow(comp) > 0) {
+      rows_html <- lapply(seq_len(nrow(comp)), function(i) {
+        r <- comp[i, ]
+        tags$tr(
+          tags$td(tags$strong(r$madhab)),
+          tags$td(r$ruling_summary)
+        )
+      })
+      card(
+        class = "mb-3",
+        card_header("How other madhabs rule on this"),
+        card_body(
+          tags$table(
+            class = "table table-sm table-borderless mb-0",
+            tags$tbody(rows_html)
+          )
+        )
+      )
+    }
 
+    # sources section
+    sources_section <- if (!is.null(rows) && nrow(rows) > 0) {
       source_items <- lapply(seq_len(nrow(rows)), function(i) {
         r <- rows[i, ]
 
@@ -282,7 +348,11 @@ server <- function(input, output, session) {
       )
     }
 
-    div(class = "answer-card", answer_card, sources_section)
+    div(class = "answer-card",
+      answer_card,
+      comparison_card,
+      sources_section
+    )
   })
 }
 

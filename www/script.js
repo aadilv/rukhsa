@@ -3,24 +3,42 @@ function setSuggestion(text) {
   var el = document.getElementById("question");
   if (!el) return;
   el.value = text;
-  Shiny.setInputValue("question", text, { priority: "event" });
+  $("#question").trigger("change");
 }
 
 // speech-to-text
 function startSpeechInput() {
-  var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  console.log("SpeechRecognition:", window.SpeechRecognition);
+  console.log("webkitSpeechRecognition:", window.webkitSpeechRecognition);
+
+  var SpeechRecognition = window.SpeechRecognition ||
+                          window.webkitSpeechRecognition ||
+                          null;
 
   if (!SpeechRecognition) {
-    Shiny.setInputValue("speech_error", "Speech recognition is not supported in this browser. Please use Chrome or Edge.", { priority: "event" });
+    Shiny.setInputValue(
+      "speech_error",
+      "Speech recognition is not supported in this browser. Please use Chrome or Edge.",
+      { priority: "event" }
+    );
     return;
   }
 
   var recognition = new SpeechRecognition();
-  recognition.lang      = "en-US";
-  recognition.interimResults = false;
+  recognition.lang            = "en-US";
+  recognition.interimResults  = false;
   recognition.maxAlternatives = 1;
+  recognition.continuous      = false;
 
   var btn = document.getElementById("mic_btn");
+
+  function resetBtn() {
+    if (btn) {
+      btn.classList.remove("recording");
+      btn.innerHTML = "&#127908;";
+    }
+  }
+
   if (btn) {
     btn.classList.add("recording");
     btn.innerHTML = "&#9632;";
@@ -31,21 +49,37 @@ function startSpeechInput() {
     var el = document.getElementById("question");
     if (el) {
       el.value = transcript;
-      Shiny.setInputValue("question", transcript, { priority: "event" });
+      $("#question").trigger("change");
     }
+    resetBtn();
   };
 
   recognition.onerror = function(event) {
-    Shiny.setInputValue("speech_error", "Mic error: " + event.error, { priority: "event" });
+    console.log("Speech error:", event.error);
+    var msg = "Mic error: " + event.error;
+    if (event.error === "not-allowed") {
+      msg = "Microphone access denied. Please allow mic access in your browser settings and reload.";
+    } else if (event.error === "no-speech") {
+      msg = "No speech detected. Please try again.";
+    }
+    Shiny.setInputValue("speech_error", msg, { priority: "event" });
+    resetBtn();
   };
 
   recognition.onend = function() {
-    var btn = document.getElementById("mic_btn");
-    if (btn) {
-      btn.classList.remove("recording");
-      btn.innerHTML = "&#127908;"; 
-    }
+    resetBtn();
   };
 
-  recognition.start();
+  try {
+    recognition.start();
+    console.log("Recognition started");
+  } catch(e) {
+    console.log("Recognition start error:", e);
+    Shiny.setInputValue(
+      "speech_error",
+      "Could not start microphone: " + e.message,
+      { priority: "event" }
+    );
+    resetBtn();
+  }
 }
