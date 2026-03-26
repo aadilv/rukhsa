@@ -10,7 +10,9 @@ library(markdown)
 source("R/data_utils.R")
 source("R/groq.R")
 source("R/hadith.R")
+source("R/quran.R")
 source("R/comparison.R")
+source("R/prayer.R")
 
 db      <- load_fiqh_data()
 MADHABS <- unique(db$madhab)
@@ -46,10 +48,10 @@ ui <- page_fluid(
   theme = my_theme,
 
   tags$head(
-  tags$meta(name = "viewport",
-            content = "width=device-width, initial-scale=1, shrink-to-fit=no"),
-  tags$link(rel = "stylesheet", href = "styles.css"),
-  tags$script(src = "script.js")
+    tags$meta(name = "viewport",
+              content = "width=device-width, initial-scale=1, shrink-to-fit=no"),
+    tags$link(rel = "stylesheet", href = "styles.css"),
+    tags$script(src = "script.js")
   ),
   useShinyjs(),
 
@@ -57,24 +59,25 @@ ui <- page_fluid(
 
     h2("Rukhsa", class = "mb-0"),
     p("Islamic rulings on prayer & purification for Muslims with medical conditions.",
-      class = "text-muted mb-4"),
+      class = "text-muted mb-3"),
+
+    uiOutput("prayer_banner"),
 
     div(class = "mb-3",
       tags$label("Select your madhab", class = "form-label fw-semibold"),
       selectInput("madhab", NULL, choices = MADHABS, selected = MADHABS[1], width = "100%")
     ),
 
-    # cross-madhab comparison checkbox
     div(class = "mb-3",
-      tags$div(class = "form-check",
+      div(class = "form-check d-flex align-items-center gap-2",
         tags$input(
           type  = "checkbox",
           id    = "show_comparison",
-          class = "form-check-input"
+          class = "form-check-input mt-0"
         ),
         tags$label(
           `for` = "show_comparison",
-          class = "form-check-label text-muted",
+          class = "form-check-label text-muted mb-0",
           style = "font-size:0.875rem;",
           "Also show how other madhabs rule on this"
         )
@@ -133,6 +136,7 @@ ui <- page_fluid(
     )
   ),
 
+  uiOutput("history_ui"),
   uiOutput("answer_area"),
 
   tags$footer(
@@ -149,6 +153,19 @@ server <- function(input, output, session) {
 
   madhab_data <- reactive({
     filter_by_madhab(db, input$madhab)
+  })
+
+  output$prayer_banner <- renderUI({
+    banner_html <- tryCatch(
+      get_prayer_banner(city = "Toronto", country = "CA"),
+      error = function(e) NULL
+    )
+    if (is.null(banner_html)) return(NULL)
+    div(
+      class = "alert alert-success py-2 px-3 mb-3",
+      style = "font-size:0.85rem;",
+      HTML(banner_html)
+    )
   })
 
   observeEvent(input$speech_error, {
@@ -208,13 +225,13 @@ server <- function(input, output, session) {
   }
 
   is_in_scope <- function(question) {
-    q <- tolower(question)
-    any(str_detect(q, SCOPE_TERMS))
+    any(str_detect(tolower(question), SCOPE_TERMS))
   }
 
-  groq_response  <- reactiveVal(NULL)
-  matched_rows   <- reactiveVal(NULL)
-  comparison_tbl <- reactiveVal(NULL)
+  question_history <- reactiveVal(character(0))
+  groq_response    <- reactiveVal(NULL)
+  matched_rows     <- reactiveVal(NULL)
+  comparison_tbl   <- reactiveVal(NULL)
 
   observeEvent(input$submit, {
     req(input$question)
@@ -236,6 +253,12 @@ server <- function(input, output, session) {
     rows <- retrieve_rows(q, madhab_data())
     matched_rows(rows)
 
+    if (nrow(rows) == 0) {
+      groq_response("__no_match__")
+      hide("loading")
+      return()
+    }
+
     answer <- call_groq(q, input$madhab, rows)
 
     if (str_detect(tolower(answer), "429|rate limit|too many")) {
@@ -244,12 +267,32 @@ server <- function(input, output, session) {
 
     groq_response(answer)
 
+    current <- question_history()
+    question_history(head(unique(c(q, current)), 5))
+
     if (isTRUE(input$show_comparison)) {
-      comp <- build_comparison(db, q)
-      comparison_tbl(comp)
+      comparison_tbl(build_comparison(db, q))
     }
 
     hide("loading")
+  })
+
+  output$history_ui <- renderUI({
+    hist <- question_history()
+    if (length(hist) == 0) return(NULL)
+    div(class = "question-card mt-2 mb-2",
+      tags$p("Recent questions", class = "text-muted mb-1",
+             style = "font-size:0.8rem;"),
+      lapply(hist, function(q) {
+        display <- if (nchar(q) > 50) paste0(substr(q, 1, 50), "...") else q
+        tags$span(
+          class   = "chip-btn rounded-pill px-3 py-1 me-1 mb-1 d-inline-block",
+          style   = "cursor:pointer; font-size:0.8rem; background:#F0FDF4;",
+          onclick = sprintf("setSuggestion('%s')", gsub("'", "\\'", q)),
+          display
+        )
+      })
+    )
   })
 
   output$answer_area <- renderUI({
@@ -258,6 +301,25 @@ server <- function(input, output, session) {
     answer <- groq_response()
     rows   <- matched_rows()
     comp   <- comparison_tbl()
+
+    if (answer == "__no_match__") {
+      available <- sort(unique(madhab_data()$app_display_tag))
+      return(div(class = "answer-card",
+        card(card_body(
+          p("No rulings found for that query in the ",
+            tags$strong(input$madhab), " database.", class = "mb-3"),
+          p("Try one of these covered topics:", class = "fw-semibold mb-2"),
+          div(lapply(available, function(t) {
+            tags$span(
+              class   = "chip-btn rounded-pill px-3 py-1 me-1 mb-1 d-inline-block",
+              style   = "cursor:pointer; font-size:0.8rem;",
+              onclick = sprintf("setSuggestion('%s')", t),
+              t
+            )
+          }))
+        ))
+      ))
+    }
 
     answer_html <- markdownToHTML(
       text          = answer,
@@ -268,47 +330,73 @@ server <- function(input, output, session) {
     answer_card <- card(
       class = "mb-3",
       card_header(
-        tags$span(input$madhab, class = "badge bg-success me-2"),
-        "Ruling"
+        class = "d-flex justify-content-between align-items-center",
+        div(
+          tags$span(input$madhab, class = "badge bg-success me-2"),
+          "Ruling"
+        ),
+        div(class = "d-flex gap-2",
+          tags$button(
+            id      = "copy-btn",
+            class   = "btn btn-sm btn-outline-secondary",
+            style   = "font-size:0.75rem;",
+            onclick = "copyRuling()",
+            "Copy"
+          ),
+          tags$button(
+            id      = "share-btn",
+            class   = "btn btn-sm btn-outline-success",
+            style   = "font-size:0.75rem;",
+            onclick = "shareRuling()",
+            "Share"
+          )
+        )
       ),
       card_body(
         class = "ruling-body",
-        HTML(answer_html)
+        tags$div(id = "ruling-text", HTML(answer_html))
       )
     )
 
     comparison_card <- if (!is.null(comp) && nrow(comp) > 0) {
-      rows_html <- lapply(seq_len(nrow(comp)), function(i) {
-        r <- comp[i, ]
-        tags$tr(
-          tags$td(tags$strong(r$madhab)),
-          tags$td(r$ruling_summary)
-        )
-      })
       card(
         class = "mb-3",
         card_header("How other madhabs rule on this"),
         card_body(
           tags$table(
             class = "table table-sm table-borderless mb-0",
-            tags$tbody(rows_html)
+            tags$tbody(lapply(seq_len(nrow(comp)), function(i) {
+              r <- comp[i, ]
+              tags$tr(
+                tags$td(tags$strong(r$madhab)),
+                tags$td(r$ruling_summary)
+              )
+            }))
           )
         )
       )
     }
 
-    # sources section
     sources_section <- if (!is.null(rows) && nrow(rows) > 0) {
+
       source_items <- lapply(seq_len(nrow(rows)), function(i) {
         r <- rows[i, ]
 
+        # hadith - fails silently
         hadith_text <- tryCatch(
           get_hadith_text(r$hadith_evidence),
           error = function(e) NULL
         )
 
+        # quran verses - up to 2, fails silently
+        quran_verses <- tryCatch(
+          get_quran_verses(r$quranic_evidence),
+          error = function(e) list()
+        )
+
         urls <- c(r$source_url_1, r$source_url_2, r$source_url_3)
         urls <- urls[!is.na(urls) & nchar(trimws(urls)) > 0]
+
         url_links <- if (length(urls) > 0) {
           do.call(tagList, lapply(urls, function(u) {
             tags$a(href = u, target = "_blank",
@@ -326,12 +414,24 @@ server <- function(input, output, session) {
           )
         }
 
+        quran_block <- if (length(quran_verses) > 0) {
+          do.call(tagList, lapply(quran_verses, function(v) {
+            tags$blockquote(
+              class = "hadith-quote mt-2 mb-1",
+              tags$p(class = "mb-0 fst-italic",
+                     paste0("\u201c", v$text, "\u201d")),
+              tags$footer(class = "blockquote-footer mt-1", v$ref)
+            )
+          }))
+        }
+
         tags$li(
           class = "mb-3",
           tags$strong(r$condition_topic),
           tags$br(),
           tags$small(r$fatwa_body, class = "text-muted"),
           hadith_block,
+          quran_block,
           url_links
         )
       })
@@ -348,11 +448,7 @@ server <- function(input, output, session) {
       )
     }
 
-    div(class = "answer-card",
-      answer_card,
-      comparison_card,
-      sources_section
-    )
+    div(class = "answer-card", answer_card, comparison_card, sources_section)
   })
 }
 
