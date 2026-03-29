@@ -2,6 +2,8 @@
 
 <img width="1920" height="1440" alt="rukhsa" src="https://github.com/user-attachments/assets/1e6e15a3-7d4a-403a-ae51-b3ffdc2e4013" />
 
+Submitted to [Ramadan Hacks](https://www.ummah.build/hackathon)
+
 Having spent quite a bit of my life in and out of the hospital system, I noticed that the fiqh most of us learned growing up never really covered what happens when your body stops cooperating with the standard rules. The problem is that madrasahs teach the baseline, but the accommodations, dispensations, nuances etc. rarely make it into the curriculum.
 
 Rukhsa is a RAG app that lets you describe your medical condition, select your madhab, and get a ruling grounded in verified classical Islamic scholarship.
