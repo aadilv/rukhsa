@@ -156,15 +156,18 @@ server <- function(input, output, session) {
   })
 
   output$prayer_banner <- renderUI({
-    banner_html <- tryCatch(
-      get_prayer_banner(city = "Toronto", country = "CA"),
-      error = function(e) NULL
+  lat <- input$user_lat
+  lon <- input$user_lon
+
+  banner_html <- tryCatch(
+    get_prayer_banner(lat = lat, lon = lon),
+    error = function(e) NULL
     )
-    if (is.null(banner_html)) return(NULL)
-    div(
-      class = "alert alert-success py-2 px-3 mb-3",
-      style = "font-size:0.85rem;",
-      HTML(banner_html)
+  if (is.null(banner_html)) return(NULL)
+  div(
+    class = "alert alert-success py-2 px-3 mb-3",
+    style = "font-size:0.85rem;",
+    HTML(banner_html)
     )
   })
 

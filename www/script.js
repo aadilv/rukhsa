@@ -144,3 +144,19 @@ function startSpeechInput() {
     resetBtn();
   }
 }
+
+// get user location and pass to Shiny for prayer times
+window.addEventListener("load", function() {
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      function(pos) {
+        Shiny.setInputValue("user_lat", pos.coords.latitude,  { priority: "event" });
+        Shiny.setInputValue("user_lon", pos.coords.longitude, { priority: "event" });
+      },
+      function(err) {
+        Shiny.setInputValue("user_lat", null, { priority: "event" });
+        Shiny.setInputValue("user_lon", null, { priority: "event" });
+      }
+    );
+  }
+});
